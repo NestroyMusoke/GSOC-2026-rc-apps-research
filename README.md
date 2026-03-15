@@ -133,3 +133,75 @@ Gemini full context for complex ones.
 - [ ] Run experiment: can Gemini generate a working RC app
       with and without RC-specific context?
 - [ ] Map the full keyword → RC feature translation layer
+
+## March 15, 2026 — Day 4: Understanding The Extension System
+And Building The First Prototype
+
+### What I Learned
+
+Spent today going deep on how Gemini CLI extensions actually
+work. Read through the official extension documentation and
+the architecture clicked into place.
+
+An extension has four key parts. The gemini-extension.json
+is the identity card that tells Gemini CLI what the extension
+is called and which files to load. The GEMINI.md is the brain
+that gets injected into every session automatically .... this is
+where safety rules and RC architecture knowledge live. Skills
+are specialized knowledge bundles that only activate when the
+user's intent matches .... this is the clean solution to the
+token cost problem essentially. Custom commands are shortcuts that give
+non-technical users a simple entry point without needing to
+know RC internals.
+
+The skills architecture is particularly important. Instead of
+loading everything RC into one large context file, each RC
+feature gets its own skill. The slash command skill only loads
+when someone asks for a slash command. The persistence skill
+only loads when someone asks to save data. This keeps token
+usage lean for simple apps while giving Gemini full context
+for complex ones.
+
+### What I Built
+
+Built the first working skeleton of the RC Apps Generator
+extension. The structure looks like this:
+
+rc-apps-generator/
+    gemini-extension.json
+    GEMINI.md
+    skills/
+        slash-command/SKILL.md
+        message-listener/SKILL.md
+    commands/
+        rc/new.toml
+
+The GEMINI.md contains five critical safety rules that always
+load ....including the bot message check that prevents Khizar's
+infinite loop bug. The message listener skill has this check
+baked in by default so it becomes impossible to miss.
+
+The slash command skill contains the exact RC interface
+structure Gemini needs to generate correct code ... including
+the registration step inside extendConfiguration that most
+generated code misses.
+
+### Key Technical Decision
+
+I chose a layered approach deliberately. Safety rules live in
+GEMINI.md and always load. Feature specific knowledge lives in
+skills and loads only when needed. This means a user asking
+for a simple slash command never pays the token cost of
+loading persistence or UIKit knowledge they don't need.
+
+### Prototype Live On GitHub
+https://github.com/NestroyMusoke/RC-apps-generator
+
+### Next Up
+
+Recreate Khizar's infinite loop experiment without
+the extension to document the failure. Then run the same
+experiment with the extension active to show the fix.
+This controlled experiment becomes the strongest evidence
+in the proposal.
+
