@@ -276,3 +276,131 @@ so Gemini always knows to call modify.getCreator().finish()
 after building any message. This makes the invisible visible.
 
 Prototype repo: https://github.com/NestroyMusoke/RC-apps-generator
+
+## March 16, 2026 — RC App Challenge Completed
+
+Spent the entire day building and deploying the RC App Challenge from scratch with no AI assistance. The challenge required building a mention monitoring app with:
+- Slash command `/nestroymusoke on|off` with persistence
+- Ephemeral notifications to the sender when they mention @Nestroy2003
+- External Logger setting — POST to a configurable URL and display the result
+
+Hit every bug in the book during this process. Most significant findings:
+
+**Finding 1 — IPostMessageSent registration:**
+`configuration.messages` does not exist on `IConfigurationExtend`. The listener must be implemented directly on the main App class using `implements IPostMessageSent`. Without this declaration the listener deploys, enables, and silently never fires. Filed as GitHub Issue #39664 on the RC Apps Engine repo. Confirmed by RC maintainer d-gubert.
+
+**Finding 2 — Ephemeral message builder:**
+`modify.getCreator()` builds public channel messages. For ephemeral messages, `read.getNotifier()` must be used. Using the wrong builder produces no error — the message is simply never delivered.
+
+**Finding 3 — External HTTP response codes:**
+The external logger endpoint returned HTTP 201 not 200. Code checking only for `statusCode === 200` silently fell back to the default message. Fixed by checking `response.data?.result` directly.
+
+App passed Sing Li's final validation test on safe.dev.rocket.chat.
+
+Repository: https://github.com/NestroyMusoke/RC-mention-monitor-app
+
+---
+
+## March 17–18, 2026 — Before/After Experiment (Day 6)
+
+Ran the controlled experiment comparing Gemini output with and without the extension active.
+
+**Same prompt given twice:**
+"Create a Rocket.Chat app with a slash command /greet that sends Hello! to the channel, and a message listener that sends an ephemeral thank you message to anyone who mentions @testuser"
+
+**Without extension — bugs found:**
+- `modify.getNotifiers().notifyUser()` — method doesn't exist, silent failure
+- `modify.getCreator().startMessage()` for ephemeral — wrong builder, message never delivered
+- Missing bot sender check — infinite loop risk
+- All three bugs compiled cleanly with zero TypeScript errors
+
+**With extension — correct output:**
+- `read.getNotifier()` used automatically
+- `notifier.getMessageBuilder()` for ephemeral messages
+- Bot check included automatically
+- `implements IPostMessageSent` on the App class
+
+Critical observation: The difference is not Gemini's capability. It is the presence or absence of RC-specific context. Without it, Gemini defaults to general TypeScript assumptions that conflict with RC's behavioral contracts.
+
+---
+
+## March 19, 2026 — Workspace Awareness Discovery
+
+While debugging deployment failures discovered a second class of errors beyond silent runtime failures — workspace compatibility failures.
+
+The RC server at localhost:3000 (RC 8.0.2) rejected a generated app ZIP because it contained a `.ts` file when the server expected pre-compiled `.js`. No useful error message. Only discovered by reading the Apps Engine definition files directly.
+
+**Key insight:** The RC server exposes a public endpoint `GET /api/info` requiring no authentication. This returns the RC version. RC and the Apps Engine are co-released — the version alone is a deterministic proxy for the full environment.
+
+Built a workspace probe script `rc-probe.js` that:
+1. Queries `/api/info`
+2. Resolves RC version against a built-in mapping table
+3. Outputs full workspace profile — Apps Engine version, Node.js, MongoDB, packaging requirements
+
+Tested against localhost:3000 and safe.dev.rocket.chat. Both probed successfully.
+
+RC Version to Apps Engine mapping table sourced from: https://github.com/RocketChat/Rocket.Chat/releases
+
+This closes the deployment failure class — the tool knows the target environment before generating anything.
+
+Extension repo updated: https://github.com/NestroyMusoke/RC-apps-generator
+
+## March 20-22, 2026 — Community Engagement and Cross-Project Collaboration
+
+Active engagement in the RC GSoC 2026 community channel this period.
+
+**Mohit Raj's validation script discussion:**
+Mohit shared a prototype that catches common RC app bugs post-generation — missing `.finish()`, incorrect notifier usage, missing bot checks. Added to the discussion the finding about `implements IPostMessageSent` being required on the App class — without it the listener deploys and silently never fires. This is the most invisible of the silent failure class because everything appears to work until you actually test the app.
+
+**Atharv Vedant — MCP Server integration:**
+Atharv is building a Minimal MCP Server Generator as a separate GSoC project. Identified a natural integration point — RC apps have full outbound HTTP capability via `IHttp`. A generated RC app can connect to an MCP server as its backend, with the RC app serving as the conversational interface inside the chat. The `rc-http-outbound` skill already teaches the correct outbound HTTP patterns, meaning this integration requires no additional tooling.
+
+**Khizar's preview feature:**
+Khizar demonstrated a confirmation loop with a live chat preview before deployment — user describes app, Gemini shows a dummy chat preview of the expected behavior, user confirms, app deploys. Added the suggestion that the preview could also surface which RC interfaces are being used under the hood — making the tool educational, not just generative.
+
+---
+
+## March 22-25, 2026 — Proposal Architecture and Extension Updates
+
+**RC-apps-generator repo changes:**
+
+- `GEMINI.md` — Added Workspace Awareness Protocol section at the top. Includes RC version to Apps Engine mapping table sourced directly from GitHub releases. Added override framing guidelines for all skills.
+- `skills/rc-message-listener/SKILL.md` — Completely rewrote. Removed incorrect `configuration.messages.providePostMessageSentHandler()` registration pattern. Added correct `implements IPostMessageSent` on App class pattern. Added `read.getNotifier()` vs `modify.getCreator()` distinction. Added bot sender type rejection — not just `type === 'bot'` but also app sender types.
+- `skills/rc-persistence/SKILL.md` — New skill. Covers correct `RocketChatAssociationRecord` usage, `readByAssociation` not `getByAssociation`, upsert flag requirement, association model selection (USER vs ROOM vs MISC).
+- `skills/rc-http/SKILL.md` — New skill. Covers outbound POST with correct headers, response handling that checks `response.data?.result` directly rather than assuming status 200, try/catch wrapping, never hardcoding URLs.
+- `commands/rc/rc-probe.js` — New file. Workspace probe script that queries `/api/info`, resolves RC version against mapping table, outputs full workspace profile including Apps Engine version, Node.js, MongoDB, packaging requirements.
+- `gemini-extension.json` — Updated to register new skills.
+
+**Proposal architecture finalized:**
+
+Five layer pipeline documented:
+- Layer 0: Intent Clarification and Architectural Mapping
+- Layer 1: Workspace Profiling
+- Layer 2: Knowledge-Aware Code Generation
+- Layer 3: Behavioural Verification Through Test Generation
+- Layer 4: Workspace-Compatible Packaging
+
+Added mutation testing protocol to Layer 3 — a liar check that programmatically introduces a functional mutation into generated code to verify test suite integrity before packaging.
+
+Added benchmark suite to the timeline — six pillars covering architectural accuracy, environment alignment, build integrity, logical soundness, code quality, and deployment readiness. Runs at the end of every development iteration not just final submission.
+
+---
+
+## March 25-31, 2026 — Proposal Refinement and Extension Consolidation
+
+**RC-apps-generator repo changes:**
+
+- `skills/rc-message-listener/SKILL.md` — Added explicit rejection of app sender types alongside bot sender types. Corrected trigger description to match natural language patterns developers actually use.
+- `skills/rc-http/SKILL.md` — Added sender ID fallback pattern for external logger response — if server returns no `id` field, fall back to `sender.id` rather than hardcoding `unknown`.
+- `skills/rc-version-compat/SKILL.md` — New skill. Documents known API gaps between Apps Engine versions. Specifically documents the `configuration.messages` gap discovered during the RC challenge — this property never existed on `IConfigurationExtend` despite `IPostMessageSent` being defined in the definition files.
+- `rc-probe.js` — Extended to show two-tier workspace awareness: public probe (no auth) vs authenticated probe (deeper environment details). Documents what each tier can and cannot access and why.
+- `README.md` — Updated with full project description, installation instructions, skill authoring guide, and architecture overview.
+
+**Research findings documented:**
+
+The workspace awareness feature has two tiers. Tier 1 queries `/api/info` publicly — no authentication required, returns RC version which alone is sufficient to determine the full environment through the mapping table. Tier 2 requires admin authentication via `X-Auth-Token` and `X-User-Id` headers — returns Apps Engine version, framework settings, security policies directly. For most users Tier 1 is sufficient. Tier 2 is optional and respects RC's security model by never requesting credentials the user hasn't explicitly provided.
+
+Discovered that deeper environment information sits behind authenticated endpoints — validated by querying `safe.dev.rocket.chat` with a personal access token. The `Apps_Framework_Version` setting returned a permissions error for non-admin users. This confirmed the Tier 1 design decision — the public RC version is the correct and sufficient proxy for the full environment.
+
+**GitHub issue #39664:**
+Filed on RocketChat/Rocket.Chat.Apps-engine documenting the `configuration.messages` missing from `IConfigurationExtend` in Apps Engine 1.60.0. Confirmed by RC maintainer d-gubert that `IPostMessageSent` must be implemented directly on the main App class. Issue informed the `rc-message-listener` skill rewrite and the `rc-version-compat` skill documentation.
